@@ -29,7 +29,7 @@
 // Defaults
 const int defaultMode = MODE_HIGH;
 const int buttonTimeoutToOffMilliseconds = 2000;
-const int noAccelShutoffMilliseconds = 30 * 60 * 1000;
+const int noAccelShutoffMilliseconds = 30 * 60 * 60 * 1000;
 
 // State
 byte mode = 0;
