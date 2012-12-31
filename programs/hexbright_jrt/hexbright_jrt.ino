@@ -9,8 +9,6 @@
     * Code reformatting and reorganization
  */
 
-#define DEBUG DEBUG_ON
-
 #include <hexbright.h>
 #include <EEPROM.h>
 #include <Wire.h>
@@ -88,6 +86,9 @@ void loop()
     // read values, adjust lights, etc.
     hb.update();
 
+    // Check the accelerometer and shut off the light if there hasn't been any recent movement
+    checkAccel();
+
     switch (hb.get_charge_state())
     {
     case CHARGING:
@@ -103,7 +104,7 @@ void loop()
     };
 
     oneSecondLoop();
-	
+
     switch (mode)
     {
     case MODE_BLINKING:
@@ -229,11 +230,9 @@ void oneSecondLoop()
 
     // Periodically pull down the button's pin, since
     // in certain hardware revisions it can float.
-    //pinMode(DPIN_RLED_SW, OUTPUT);
-    //pinMode(DPIN_RLED_SW, INPUT);
+    pinMode(DPIN_RLED_SW, OUTPUT);
+    pinMode(DPIN_RLED_SW, INPUT);
 
-    // Check the accelerometer and shut off the light if there hasn't been any recent movement
-    checkAccel();
     if (time > noAccelShutoffTime && mode != MODE_OFF)
     {
         Serial.print("No motion in ");
@@ -245,8 +244,10 @@ void oneSecondLoop()
 
 void checkAccel()
 {
-    // XXX - disable the accelerometer timeout for now...hb.moved() doesn't seem to work at the moment
-    resetAccelTimeout();
+    if (hb.moved(15) == true)
+    {
+        resetAccelTimeout();
+    }
 }
 
 void powerOff()
