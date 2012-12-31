@@ -86,14 +86,12 @@ void loop()
     }
 
     // read values, adjust lights, etc.
-	//Serial.println("before update()");
     hb.update();
-	//Serial.println("after update()");
-	
+
     switch (hb.get_charge_state())
     {
     case CHARGING:
-        if (hb.get_led_state(GLED)==LED_OFF)
+        if (hb.get_led_state(GLED) == LED_OFF)
             hb.set_led(GLED, 200, 200);
         break;
     case CHARGED:
@@ -104,9 +102,7 @@ void loop()
         break;
     };
 
-	//Serial.println("before 1 second loop");
     oneSecondLoop();
-	//Serial.println("after 1 second loop");
 	
     switch (mode)
     {
