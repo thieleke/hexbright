@@ -1,12 +1,29 @@
-hexbright_jrt: modifications to hexbright_factory (not yet ported to the hexbright library)
+hexbright_jrt by Jeff Thieleke
 
-* Incorporated accelerometer, 30 minute timeout mode, and the 2 second power off shortcut code from https://github.com/bhimoff/HexBrightFLEX
-* Modified the duty cycle on the blinking mode to be more bicycle friendly
-* Added a last-on memory (including for the blinking light level)
-* Code reformatting and reorganization
+Significant changes from hexbright_factory (samples/hexbright_factory):
+  * Incorporated accelerometer, 30 minute timeout mode, and the 2 second power off 
+     shortcut code from https://github.com/bhimoff/HexBrightFLEX
+  * Modified the duty cycle on the blinking mode to be more bicycle friendly
+  * Added a last-on memory (including for the blinking light level)
+  * Code reformatting and reorganization
+
+  
+There are two functionally similar sketches:
+  * projects/hexbright_jrt (uses dhiltonp's hexbright library)
+  * programs/hexbright_jrt_nonlib (non-library version)
+
+If you are looking to modify one of these sketches, I would start with the library version
+since it is cleaner and builds upon the excellent hexbright library.  If sketch size and
+(potentially) free RAM is more important, the non-library version would be a better choice.  
 
 
 
+
+
+
+-----------------------------------------------------------------------------------------------
+hexbright library README.md from https://github.com/dhiltonp/hexbright:
+-----------------------------------------------------------------------------------------------
 
 hexbright
 =========

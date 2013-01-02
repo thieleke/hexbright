@@ -267,7 +267,7 @@ void checkAccel()
         resetAccelTimeout();
     }
 #else
-    resetAccelTimeout();
+    noAccelShutoffTime = 0;
 #endif
 }
 
