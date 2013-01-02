@@ -10,7 +10,7 @@
  */
 
 //#define DEBUG
-//#define ACCELEROMETER
+#define ACCELEROMETER
 
 #include <EEPROM.h>
 #ifdef ACCELEROMETER
