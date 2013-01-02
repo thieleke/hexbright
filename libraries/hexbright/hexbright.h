@@ -32,7 +32,7 @@ either expressed or implied, of the FreeBSD Project.
 
 /// Some space-saving options
 #define LED // comment out save 786 bytes if you don't use the rear LEDs
-#define PRINT_NUMBER // comment out to save 626 bytes if you don't need to print numbers (but need the LEDs)
+//#define PRINT_NUMBER // comment out to save 626 bytes if you don't need to print numbers (but need the LEDs)
 #define ACCELEROMETER //comment out to save 1500 bytes if you don't need the accelerometer
 
 // see also freeRam() below
@@ -57,7 +57,6 @@ either expressed or implied, of the FreeBSD Project.
 
 
 // debugging related definitions
-#define DEBUG 1
 // Some debug modes set the light.  Your control code may reset it, causing weird flashes at startup.
 #define DEBUG_OFF 0 // no extra code is compiled in
 #define DEBUG_ON 1 // initialize printing
@@ -70,7 +69,7 @@ either expressed or implied, of the FreeBSD Project.
 #define DEBUG_NUMBER 8 // number printing utility
 #define DEBUG_CHARGE 9 // charge state
 
-
+#define DEBUG DEBUG_OFF
 
 #if (DEBUG==DEBUG_TEMP)
 #define OVERHEAT_TEMPERATURE 265 // something lower, to more easily verify algorithms

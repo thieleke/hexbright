@@ -3,7 +3,7 @@
  Factory firmware for HexBright FLEX
  v2.4  Dec 6, 2012
  Modifications from Jeff Thieleke:
-    * Incorporated accelerometer, 30 minute timeout mode, and the 2 second power off shortcut code from https://github.com/bhimoff/HexBrightFLEX
+    * Incorporated accelerometer, 15 minute timeout mode, and the 2 second power off shortcut code from https://github.com/bhimoff/HexBrightFLEX
     * Modified the duty cycle on the blinking mode to be more bicycle friendly
     * Added a last-on memory (including blinking brightness level)
     * Code reformatting and reorganization
@@ -13,8 +13,20 @@
 #include <EEPROM.h>
 #include <Wire.h>
 
+// Settings
+#define NO_MOTION_SHUTOFF_MINUTES    15
+#define ACCELEROMETER_SENSITIVITY    30    // (1/10th Gs of acceleration)
+
+// Pin assignments
 #define DPIN_RLED_SW            2
+#define DPIN_GLED               5
+#define DPIN_PGOOD              7
+#define DPIN_PWR                8
+#define DPIN_DRV_MODE           9
 #define DPIN_DRV_EN             10
+#define DPIN_ACC_INT            3
+#define APIN_TEMP               0
+#define APIN_CHARGE             3
 
 // Modes
 #define MODE_OFF                0
@@ -23,20 +35,17 @@
 #define MODE_HIGH               3
 #define MODE_BLINKING           4
 #define MODE_BLINKING_PREVIEW   5
+
 // EEPROM
-#define EEPROM_LAST_ON_MODE		0
+#define EEPROM_LAST_ON_MODE_ADDR     0
 
 // Defaults
-const int defaultMode = MODE_HIGH;
-const int buttonTimeoutToOffMilliseconds = 2000;
-const int noAccelShutoffMilliseconds = 30 * 60 * 60 * 1000;
+const int buttonTimeoutToOffMilliseconds = 2 * 1000;
+const unsigned long noAccelShutoffMilliseconds = NO_MOTION_SHUTOFF_MINUTES * 60000;
 
 // State
 byte mode = 0;
 byte lastOnMode = 0;
-unsigned long btnTime = 0;
-boolean btnDown = false;
-int lastChargeState = 0;
 unsigned long lastModeTime = 0;
 unsigned long oneSecondLoopTime = 0;
 unsigned long lastAccelTime = 0;
@@ -54,15 +63,13 @@ void setup()
 
     mode = MODE_OFF;
     lastOnMode = 0;
-    btnTime = 0;
-    btnDown = false;
-    lastChargeState = 0;
     lastModeTime = 0;
     oneSecondLoopTime = 0;
     lastAccelTime = 0;
     noAccelShutoffTime = 0;
+    poweringOffTime = 0;
 
-    lastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE);
+    lastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE_ADDR);
     if (lastOnMode < MODE_LOW || lastOnMode > MODE_HIGH)
     {
         lastOnMode = MODE_MED;
@@ -77,9 +84,10 @@ void loop()
 {
     const unsigned long time = millis();
 
-    if (poweringOffTime > 0 && time > poweringOffTime)
+    if (poweringOffTime > 0 && (long)(time - poweringOffTime) >= 0)
     {
         powerOff();
+        poweringOffTime = 0;
         return;
     }
 
@@ -89,28 +97,16 @@ void loop()
     // Check the accelerometer and shut off the light if there hasn't been any recent movement
     checkAccel();
 
-    switch (hb.get_charge_state())
-    {
-    case CHARGING:
-        if (hb.get_led_state(GLED) == LED_OFF)
-            hb.set_led(GLED, 200, 200);
-        break;
-    case CHARGED:
-        hb.set_led(GLED, 10);
-        break;
-    case BATTERY:
-        // led auto offs, don't need to turn it off...
-        break;
-    };
+    checkChargeState();
 
     oneSecondLoop();
 
     switch (mode)
     {
-    case MODE_BLINKING:
-    case MODE_BLINKING_PREVIEW:
-        digitalWrite(DPIN_DRV_EN, (time % 600) < 450);
-        break;
+        case MODE_BLINKING:
+        case MODE_BLINKING_PREVIEW:
+            digitalWrite(DPIN_DRV_EN, (time % 600) < 450);
+            break;
     }
 
     // Check for mode changes
@@ -120,76 +116,80 @@ void loop()
 
     switch (mode)
     {
-    case MODE_OFF:
-        if (button_released)
-        {
-            if (lastModeTime == 0 || time - lastModeTime > 1000)
+        case MODE_OFF:
+            if (button_released)
             {
-                Serial.print("lastOnMode = ");
-                Serial.println(lastOnMode);
-                newMode = lastOnMode;
-                lastModeTime = time;
+                if (lastModeTime == 0 || time - lastModeTime > 1000)
+                {
+                    Serial.print("lastOnMode = ");
+                    Serial.println(lastOnMode);
+                    newMode = lastOnMode;
+                    lastModeTime = time;
+                }
+                else
+                {
+                    newMode = MODE_LOW;
+                }
+                break;
             }
-            else
+            if (button_time_held > 500)
             {
-                newMode = MODE_LOW;
+                newMode = MODE_BLINKING_PREVIEW;
+                break;
             }
             break;
-        }
-        if (button_time_held > 500)
-        {
-            newMode = MODE_BLINKING_PREVIEW;
+        case MODE_LOW:
+            if (button_released)
+            {
+                if (time - lastModeTime > buttonTimeoutToOffMilliseconds)
+                {
+                    newMode = MODE_OFF;
+                }
+                else
+                {
+                    newMode = MODE_MED;
+                }
+            }
             break;
-        }
-        break;
-    case MODE_LOW:
-        if (button_released)
-        {
-            if (time - lastModeTime > buttonTimeoutToOffMilliseconds)
+        case MODE_MED:
+            if (button_released)
+            {
+                if (time - lastModeTime > buttonTimeoutToOffMilliseconds)
+                {
+                    newMode = MODE_OFF;
+                }
+                else
+                {
+                    newMode = MODE_HIGH;
+                }
+            }
+            break;
+        case MODE_HIGH:
+            if (button_released)
             {
                 newMode = MODE_OFF;
             }
-            else
+            break;
+        case MODE_BLINKING_PREVIEW:
+            // This mode exists just to ignore this button release.
+            if (button_released)
             {
-                newMode = MODE_MED;
+                newMode = MODE_BLINKING;
             }
-        }
-        break;
-    case MODE_MED:
-        if (button_released)
-        {
-            if (time - lastModeTime > buttonTimeoutToOffMilliseconds)
+            break;
+        case MODE_BLINKING:
+            if (button_released)
             {
-                newMode = MODE_OFF;
+                if (time - lastModeTime > 2000)
+                {
+                    newMode = MODE_OFF;
+                }
             }
-            else
-            {
-                newMode = MODE_HIGH;
-            }
-        }
-        break;
-    case MODE_HIGH:
-        if (button_released)
-        {
-            newMode = MODE_OFF;
-        }
-        break;
-    case MODE_BLINKING_PREVIEW:
-        // This mode exists just to ignore this button release.
-        if (button_released)
-        {
-            newMode = MODE_BLINKING;
-        }
-        break;
-    case MODE_BLINKING:
-        if (button_released)
-        {
-            if (time - lastModeTime > 2000)
-            {
-                newMode = MODE_OFF;
-            }
-        }
-        break;
+            break;
+        default:
+            Serial.print("loop() - unknown mode: ");
+            Serial.println(mode);
+            break;
     }
 
     // Do the mode transitions
@@ -199,22 +199,26 @@ void loop()
 
         switch (newMode)
         {
-        case MODE_OFF:
-            setLightOff();
-            break;
-        case MODE_LOW:
-            setLightLow();
-            break;
-        case MODE_MED:
-            setLightMed();
-            break;
-        case MODE_HIGH:
-            setLightHigh();
-            break;
-        case MODE_BLINKING:
-        case MODE_BLINKING_PREVIEW:
-            setLightBlinking();
-            break;
+            case MODE_OFF:
+                setLightOff();
+                break;
+            case MODE_LOW:
+                setLightLow();
+                break;
+            case MODE_MED:
+                setLightMed();
+                break;
+            case MODE_HIGH:
+                setLightHigh();
+                break;
+            case MODE_BLINKING:
+            case MODE_BLINKING_PREVIEW:
+                setLightBlinking();
+                break;
+            default:
+                Serial.print("loop() - unknown newMode: ");
+                Serial.println(newMode);
+                break;
         }
     }
 }
@@ -233,30 +237,51 @@ void oneSecondLoop()
     pinMode(DPIN_RLED_SW, OUTPUT);
     pinMode(DPIN_RLED_SW, INPUT);
 
-    if (time > noAccelShutoffTime && mode != MODE_OFF)
+    if (noAccelShutoffTime > 0 && mode > MODE_OFF)
     {
-        Serial.print("No motion in ");
-        Serial.print((time - lastAccelTime) / 1000);
-        Serial.println(" seconds - shutting off");
-        setLightOff();
+        Serial.print("Time = ");
+        Serial.print(time);
+        Serial.print(", No notion shut off time = ");
+        Serial.println(noAccelShutoffTime);
+
+        if ((long)(time - noAccelShutoffTime) >= 0)
+        {
+            Serial.print("No motion in ");
+            Serial.print((time - lastAccelTime) / 1000);
+            Serial.println(" seconds - shutting off");
+            setLightOff();
+            noAccelShutoffTime = 0;
+        }
     }
+
+    Serial.print("RAM available: ");
+    Serial.print(hb.freeRam());
+    Serial.println("/1024 bytes");
 }
 
 void checkAccel()
 {
-    if (hb.moved(15) == true)
+#ifdef ACCELEROMETER
+    if (hb.moved(ACCELEROMETER_SENSITIVITY) == true && mode > MODE_OFF)
     {
         resetAccelTimeout();
     }
+#else
+    resetAccelTimeout();
+#endif
 }
 
 void powerOff()
 {
+    Serial.println("Powering off");
+    poweringOffTime = 0;
+    noAccelShutoffTime = 0;
+
     // Don't unnecessarily update the EEPROM
-    byte eepromLastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE);
+    byte eepromLastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE_ADDR);
     if (eepromLastOnMode != lastOnMode)
     {
-        EEPROM.write(EEPROM_LAST_ON_MODE, lastOnMode);
+        EEPROM.write(EEPROM_LAST_ON_MODE_ADDR, lastOnMode);
     }
 
     hb.shutdown();
@@ -291,43 +316,46 @@ void setLight(byte lightMode)
 {
     switch (lightMode)
     {
-    case MODE_OFF:
-        Serial.println("Mode = off");
-        hb.set_light(CURRENT_LEVEL, 0, NOW);
-        poweringOffTime = millis() + (buttonTimeoutToOffMilliseconds * 3);
-        break;
-    case MODE_LOW:
-        Serial.println("Mode = low");
-        hb.set_light(CURRENT_LEVEL, 200, NOW);
-        lastOnMode = lightMode;
-        poweringOffTime = 0;
-        break;
-    case MODE_MED:
-        Serial.println("Mode = medium");
-        hb.set_light(CURRENT_LEVEL, MAX_LOW_LEVEL, NOW);
-        lastOnMode = lightMode;
-        poweringOffTime = 0;
-        break;
-    case MODE_HIGH:
-        Serial.println("Mode = high");
-        hb.set_light(CURRENT_LEVEL, MAX_LEVEL, NOW);
-        lastOnMode = lightMode;
-        poweringOffTime = 0;
-        break;
-    case MODE_BLINKING:
-    case MODE_BLINKING_PREVIEW:
-        Serial.print("Mode = blinking, brightness mode = ");
-        Serial.println(lastOnMode);
-        setLight(lastOnMode);
-        poweringOffTime = 0;
-        break;
+        case MODE_OFF:
+            Serial.println("Mode = off");
+            hb.set_light(CURRENT_LEVEL, 0, NOW);
+            poweringOffTime = millis() + (buttonTimeoutToOffMilliseconds * 3);
+            break;
+        case MODE_LOW:
+            Serial.println("Mode = low");
+            hb.set_light(CURRENT_LEVEL, 200, NOW);
+            lastOnMode = lightMode;
+            poweringOffTime = 0;
+            break;
+        case MODE_MED:
+            Serial.println("Mode = medium");
+            hb.set_light(CURRENT_LEVEL, MAX_LOW_LEVEL, NOW);
+            lastOnMode = lightMode;
+            poweringOffTime = 0;
+            break;
+        case MODE_HIGH:
+            Serial.println("Mode = high");
+            hb.set_light(CURRENT_LEVEL, MAX_LEVEL, NOW);
+            lastOnMode = lightMode;
+            poweringOffTime = 0;
+            break;
+        case MODE_BLINKING:
+        case MODE_BLINKING_PREVIEW:
+            Serial.print("Mode = blinking, brightness mode = ");
+            Serial.println(lastOnMode);
+            setLight(lastOnMode);
+            poweringOffTime = 0;
+            break;
     }
 
     mode = lightMode;
     if (mode == MODE_BLINKING_PREVIEW)
         mode = MODE_BLINKING;
 
-    resetAccelTimeout();
+    if (lightMode > MODE_OFF)
+    {
+        resetAccelTimeout();
+    }
 }
 
 void resetAccelTimeout()
@@ -335,7 +363,23 @@ void resetAccelTimeout()
     const unsigned long time = millis();
     lastAccelTime = time;
     noAccelShutoffTime = time + noAccelShutoffMilliseconds;
+    Serial.print("noAccelShutoffTime = ");
+    Serial.println(noAccelShutoffTime);
 }
 
-
-
+void checkChargeState()
+{
+    switch (hb.get_definite_charge_state())
+    {
+        case CHARGING:
+            if (hb.get_led_state(GLED) == LED_OFF)
+                hb.set_led(GLED, 200, 200);
+            break;
+        case CHARGED:
+            hb.set_led(GLED, 10);
+            break;
+        case BATTERY:
+            // led auto offs, don't need to turn it off...
+            break;
+    };
+}
