@@ -22,7 +22,7 @@ since it is cleaner and builds upon the excellent hexbright library.  If sketch 
 
 
 -----------------------------------------------------------------------------------------------
-hexbright library README.md from https://github.com/dhiltonp/hexbright:
+hexbright library README.md from https://github.com/dhiltonp/hexbright
 -----------------------------------------------------------------------------------------------
 
 
