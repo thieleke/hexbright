@@ -1,7 +1,7 @@
 hexbright_jrt by Jeff Thieleke
 
-Significant changes from hexbright_factory (samples/hexbright_factory):
-  * Incorporated accelerometer, 15 minute no-motion power off, and the 2 second power off 
+Significant changes from hexbright_factory (default factory code):
+  * Incorporated accelerometer, 15 minute no-motion power off, and 2 second delay->power switch->power off  
      shortcut code from https://github.com/bhimoff/HexBrightFLEX
   * Modified the duty cycle on the blinking mode to be more bicycle friendly
   * Added a last-on memory (including for the blinking light level)
@@ -9,7 +9,7 @@ Significant changes from hexbright_factory (samples/hexbright_factory):
 
   
 There are two functionally similar sketches:
-  * projects/hexbright_jrt (uses dhiltonp's hexbright library)
+  * programs/hexbright_jrt        (uses dhiltonp's hexbright library)
   * programs/hexbright_jrt_nonlib (non-library version)
 
 If you are looking to modify one of these sketches, I would start with the library version
@@ -22,8 +22,10 @@ since it is cleaner and builds upon the excellent hexbright library.  If sketch 
 
 
 -----------------------------------------------------------------------------------------------
-hexbright library README.md from https://github.com/dhiltonp/hexbright:
+hexbright library README.md from https://github.com/dhiltonp/hexbright
 -----------------------------------------------------------------------------------------------
+
+
 
 hexbright
 =========
