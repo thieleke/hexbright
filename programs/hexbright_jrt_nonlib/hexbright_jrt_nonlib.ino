@@ -3,18 +3,24 @@
  Factory firmware for HexBright FLEX
  v2.4  Dec 6, 2012
  Modifications from Jeff Thieleke:
-    * Incorporated accelerometer, 30 minute timeout mode, and the 2 second power off shortcut code from https://github.com/bhimoff/HexBrightFLEX
+    * Incorporated accelerometer, 15 minute timeout mode, and the 2 second power off shortcut code from https://github.com/bhimoff/HexBrightFLEX
     * Modified the duty cycle on the blinking mode to be more bicycle friendly
     * Added a last-on memory (including blinking brightness level)
     * Code reformatting and reorganization
  */
 
-#include <math.h>
-#include <Wire.h>
+//#define DEBUG
+#define ACCELEROMETER
+
 #include <EEPROM.h>
+#ifdef ACCELEROMETER
+#include <Wire.h>
+#endif
 
 // Settings
-#define OVERTEMP                340
+#define OVERTEMP                     340
+#define NO_MOTION_SHUTOFF_MINUTES    15
+
 // Constants
 #define ACC_ADDRESS             0x4C
 #define ACC_REG_XOUT            0
@@ -44,19 +50,20 @@
 #define MODE_BLINKING           4
 #define MODE_BLINKING_PREVIEW   5
 // EEPROM
-#define EEPROM_LAST_ON_MODE		0
+#define EEPROM_LAST_ON_MODE_ADDR    0
+
 
 // Defaults
-const int defaultMode = MODE_HIGH;
+const int defaultMode = MODE_MED;
 const int buttonTimeoutToOffMilliseconds = 2000;
-const int noAccelShutoffMilliseconds = 30 * 60 * 1000;
+const unsigned long noAccelShutoffMilliseconds = NO_MOTION_SHUTOFF_MINUTES * 60000;
 
 // State
 byte mode = 0;
 byte lastOnMode = 0;
 unsigned long btnTime = 0;
 boolean btnDown = false;
-int lastChargeState = 0;
+int chargeState = 0;
 unsigned long lastModeTime = 0;
 unsigned long oneSecondLoopTime = 0;
 unsigned long lastAccelTime = 0;
@@ -84,7 +91,11 @@ void setup()
     digitalWrite(DPIN_ACC_INT,  HIGH);
 
     // Initialize serial busses
+#ifdef DEBUG
     Serial.begin(9600);
+#endif
+
+#ifdef ACCELEROMETER
     Wire.begin();
 
     // Configure accelerometer
@@ -105,6 +116,7 @@ void setup()
     Wire.beginTransmission(ACC_ADDRESS);
     Wire.write(enable, sizeof(enable));
     Wire.endTransmission();
+#endif
 
     btnTime = time;
     btnDown = digitalRead(DPIN_RLED_SW);
@@ -113,13 +125,14 @@ void setup()
     lastOnMode = 0;
     btnTime = 0;
     btnDown = false;
-    lastChargeState = 0;
+    chargeState = 0;
     lastModeTime = 0;
     oneSecondLoopTime = 0;
     lastAccelTime = 0;
     noAccelShutoffTime = 0;
+    poweringOffTime = 0;
 
-    lastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE);
+    lastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE_ADDR);
     if (lastOnMode < MODE_LOW || lastOnMode > MODE_HIGH)
     {
         lastOnMode = MODE_MED;
@@ -134,9 +147,10 @@ void loop()
 {
     const unsigned long time = millis();
 
-    if (poweringOffTime > 0 && time > poweringOffTime)
+    if (poweringOffTime > 0 && (long)(time - poweringOffTime) >= 0)
     {
         powerOff();
+        poweringOffTime = 0;
         return;
     }
 
@@ -148,7 +162,7 @@ void loop()
     {
         case MODE_BLINKING:
         case MODE_BLINKING_PREVIEW:
-            digitalWrite(DPIN_DRV_EN, (time%600)<450);
+            digitalWrite(DPIN_DRV_EN, (time % 600) < 450);
             break;
     }
 
@@ -224,6 +238,10 @@ void loop()
                 }
             }
             break;
+        default:
+            Serial.print("loop() - unknown mode: ");
+            Serial.println(mode);
+            break;
     }
 
     // Do the mode transitions
@@ -249,6 +267,10 @@ void loop()
             case MODE_BLINKING_PREVIEW:
                 setLightBlinking();
                 break;
+            default:
+                Serial.print("loop() - unknown newMode: ");
+                Serial.println(mode);
+                break;
         }
     }
 
@@ -273,32 +295,45 @@ void oneSecondLoop()
     // Check the temperature sensor
     checkTemperature();
 
+    Serial.print("Charge State: ");
+    Serial.println(chargeState);
+
     // Periodically pull down the button's pin, since
     // in certain hardware revisions it can float.
     pinMode(DPIN_RLED_SW, OUTPUT);
     pinMode(DPIN_RLED_SW, INPUT);
 
+#ifdef ACCELEROMETER
     // Check the accelerometer and shut off the light if there hasn't been any recent movement
     checkAccel();
-    if (time > noAccelShutoffTime && mode != MODE_OFF)
+
+    if (noAccelShutoffTime > 0 && mode > MODE_OFF)
     {
-        Serial.print("No motion in ");
-        Serial.print((time - lastAccelTime) / 1000);
-        Serial.println(" seconds - shutting off");
-        setLightOff();
+        Serial.print("Time = ");
+        Serial.print(time);
+        Serial.print(", No notion shut off time = ");
+        Serial.println(noAccelShutoffTime);
+
+        if ((long)(time - noAccelShutoffTime) >= 0)
+        {
+            Serial.print("No motion in ");
+            Serial.print((time - lastAccelTime) / 1000);
+            Serial.println(" seconds - shutting off");
+            setLightOff();
+            noAccelShutoffTime = 0;
+        }
     }
+#endif
 }
 
-void checkChargeState()
+int checkChargeState()
 {
-    const unsigned long time = millis();
-
     // Check the state of the charge controller
-    int chargeState = analogRead(APIN_CHARGE);
-
+    const unsigned long time = millis();
+    chargeState = analogRead(APIN_CHARGE);
     if (chargeState < 128)  // Low - charging
     {
-        digitalWrite(DPIN_GLED, (time&0x0100)?LOW:HIGH);
+        digitalWrite(DPIN_GLED, (time & 0x0100) ? LOW : HIGH);
     }
     else if (chargeState > 768) // High - charged
     {
@@ -308,13 +343,15 @@ void checkChargeState()
     {
         digitalWrite(DPIN_GLED, LOW);
     }
+
+    return chargeState;
 }
 
 void checkTemperature()
 {
     int temperature = analogRead(APIN_TEMP);
-    Serial.print("Temp: ");
-    Serial.println(temperature);
+    //Serial.print("Temp: ");
+    //Serial.println(temperature);
     if (temperature > OVERTEMP && mode != MODE_OFF)
     {
         Serial.println("Overheating!");
@@ -333,6 +370,7 @@ void checkTemperature()
 
 void checkAccel()
 {
+#ifdef ACCELEROMETER
     const unsigned long time = millis();
     byte tapped = 0, shaked = 0;
 
@@ -363,20 +401,25 @@ void checkAccel()
             resetAccelTimeout();
         }
     }
+#endif
 }
 
 void powerOff()
 {
+    Serial.println("Powering off");
+    poweringOffTime = 0;
+    noAccelShutoffTime = 0;
+
     pinMode(DPIN_PWR, OUTPUT);
     digitalWrite(DPIN_PWR, LOW);
     digitalWrite(DPIN_DRV_MODE, LOW);
     digitalWrite(DPIN_DRV_EN, LOW);
 
     // Don't unnecessarily update the EEPROM
-    byte eepromLastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE);
+    byte eepromLastOnMode = EEPROM.read(EEPROM_LAST_ON_MODE_ADDR);
     if (eepromLastOnMode != lastOnMode)
     {
-        EEPROM.write(EEPROM_LAST_ON_MODE, lastOnMode);
+        EEPROM.write(EEPROM_LAST_ON_MODE_ADDR, lastOnMode);
     }
 }
 
@@ -413,7 +456,7 @@ void setLight(byte lightMode)
             Serial.println("Mode = off");
             digitalWrite(DPIN_DRV_MODE, LOW);
             digitalWrite(DPIN_DRV_EN, LOW);
-            poweringOffTime = millis() + (buttonTimeoutToOffMilliseconds * 3);
+            poweringOffTime = millis() + (buttonTimeoutToOffMilliseconds * 2);
             break;
         case MODE_LOW:
             Serial.println("Mode = low");
@@ -449,20 +492,28 @@ void setLight(byte lightMode)
             setLight(lastOnMode);
             poweringOffTime = 0;
             break;
+        default:
+            Serial.print("setLight - unknown mode: ");
+            Serial.println(lightMode);
     }
 
     mode = lightMode;
     if (mode == MODE_BLINKING_PREVIEW)
         mode = MODE_BLINKING;
 
-    resetAccelTimeout();
+    if (lightMode != MODE_OFF)
+    {
+        resetAccelTimeout();
+    }
 }
 
 void resetAccelTimeout()
 {
+#ifdef ACCELEROMETER
     const unsigned long time = millis();
     lastAccelTime = time;
     noAccelShutoffTime = time + noAccelShutoffMilliseconds;
+#endif
 }
 
 
