@@ -32,7 +32,7 @@ either expressed or implied, of the FreeBSD Project.
 
 /// Some space-saving options
 #define LED // comment out save 786 bytes if you don't use the rear LEDs
-//#define PRINT_NUMBER // comment out to save 626 bytes if you don't need to print numbers (but need the LEDs)
+#define PRINT_NUMBER // comment out to save 626 bytes if you don't need to print numbers (but need the LEDs)
 #define ACCELEROMETER //comment out to save 1500 bytes if you don't need the accelerometer
 
 // see also freeRam() below
@@ -57,6 +57,7 @@ either expressed or implied, of the FreeBSD Project.
 
 
 // debugging related definitions
+#define DEBUG 0
 // Some debug modes set the light.  Your control code may reset it, causing weird flashes at startup.
 #define DEBUG_OFF 0 // no extra code is compiled in
 #define DEBUG_ON 1 // initialize printing
@@ -69,7 +70,7 @@ either expressed or implied, of the FreeBSD Project.
 #define DEBUG_NUMBER 8 // number printing utility
 #define DEBUG_CHARGE 9 // charge state
 
-#define DEBUG DEBUG_OFF
+
 
 #if (DEBUG==DEBUG_TEMP)
 #define OVERHEAT_TEMPERATURE 265 // something lower, to more easily verify algorithms
@@ -84,6 +85,10 @@ either expressed or implied, of the FreeBSD Project.
 #define MAX_LEVEL 1000
 #define MAX_LOW_LEVEL 500
 #define CURRENT_LEVEL -1
+// We will not go below MIN_OVERHEAT_LEVEL even when overheating.  This
+//  should only matter when ambient temperature is extremely close to
+//  (or above) OVERHEAT_TEMPERATURE.
+#define MIN_OVERHEAT_LEVEL 100
 
 #define NOW 1
 
@@ -189,6 +194,17 @@ class hexbright {
     //  modify this as well. Takes up 60 bytes
     static int get_fahrenheit();
 
+    // A convenience function that will print the charge state over the led specified
+    //  CHARGING = 350 ms on, 350 ms off.
+    //  CHARGED = solid on
+    //  BATTERY = nothing.
+    // If you are using print_number, call it before this function if possible.
+    // I recommend the following (if using print_number()):
+    //  ...code that may call print number...
+    //  if(!printing_number())
+    //    print_charge(GLED);
+    //  ...end of loop...
+    static void print_charge(byte led);
     // returns CHARGING, CHARGED, or BATTERY
     // This reads the charge state twice with a small delay, then returns
     //  the actual charge state.  BATTERY will never be returned if we are
@@ -335,4 +351,7 @@ class hexbright {
     static void read_thermal_sensor();
 
     static void read_button();
+
+    // read through flash, return the checksum
+    static int flash_checksum();
 };

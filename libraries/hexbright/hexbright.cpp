@@ -50,6 +50,14 @@ unsigned long time;
 hexbright::hexbright() {
 }
 
+int hexbright::flash_checksum() {
+  int checksum = 0;
+  for(int i=0; i<16384; i++) {
+    checksum+=pgm_read_byte(i);
+  }
+  return checksum;
+}
+
 void hexbright::init_hardware() {
   // We just powered on! That means either we got plugged
   // into USB, or the user is pressing the power button.
@@ -81,6 +89,8 @@ void hexbright::init_hardware() {
   Serial.print("Ram available: ");
   Serial.print(freeRam());
   Serial.println("/1024 bytes");
+  Serial.print("Flash checksum: ");
+  Serial.println(flash_checksum());
 #endif
 
 #ifdef ACCELEROMETER
@@ -147,13 +157,6 @@ void hexbright::update() {
 
   // change light levels as requested
   adjust_light();
-}
-
-void hexbright::shutdown() {
-  pinMode(DPIN_PWR, OUTPUT);
-  digitalWrite(DPIN_PWR, LOW);
-  digitalWrite(DPIN_DRV_MODE, LOW);
-  digitalWrite(DPIN_DRV_EN, LOW);
 }
 
 
@@ -281,7 +284,7 @@ void hexbright::overheat_protection() {
   safe_light_level = safe_light_level+(OVERHEAT_TEMPERATURE-temperature);
   // min, max levels...
   safe_light_level = safe_light_level > MAX_LEVEL ? MAX_LEVEL : safe_light_level;
-  safe_light_level = safe_light_level < 0 ? 0 : safe_light_level;
+  safe_light_level = safe_light_level < MIN_OVERHEAT_LEVEL ? MIN_OVERHEAT_LEVEL : safe_light_level;
 #if (DEBUG==DEBUG_TEMP)
   static float printed_temperature = 0;
   static float average_temperature = -1;
@@ -293,7 +296,8 @@ void hexbright::overheat_protection() {
   average_temperature = (average_temperature*4+temperature)/5;
   if (abs(printed_temperature-average_temperature)>1) {
     printed_temperature = average_temperature;
-    Serial.print("Current average reading: ");
+    Serial.print(millis());
+    Serial.print(" ms, average reading: ");
     Serial.print(printed_temperature);
     Serial.print(" (celsius: ");
     Serial.print(get_celsius());
@@ -304,7 +308,9 @@ void hexbright::overheat_protection() {
 #endif
 
   // if safe_light_level has changed, guarantee a light adjustment:
-  if(safe_light_level < MAX_LEVEL) {
+  // the second test guarantees that we won't turn on if we are
+  //  overheating and just shut down
+  if(safe_light_level < MAX_LEVEL && get_light_level()>MIN_OVERHEAT_LEVEL) {
 #if (DEBUG!=DEBUG_OFF)
     Serial.print("Estimated safe light level: ");
     Serial.println(safe_light_level);
@@ -347,8 +353,8 @@ byte hexbright::get_led_state(byte led) {
 
 inline void hexbright::_led_on(byte led) {
   if(led == RLED) { // DPIN_RLED_SW
-    analogWrite(DPIN_RLED_SW, led_brightness[RLED]);
     pinMode(DPIN_RLED_SW, OUTPUT);
+    analogWrite(DPIN_RLED_SW, led_brightness[RLED]);
   } else { // DPIN_GLED
     analogWrite(DPIN_GLED, led_brightness[GLED]);
   }
@@ -356,10 +362,10 @@ inline void hexbright::_led_on(byte led) {
 
 inline void hexbright::_led_off(byte led) {
   if(led == RLED) { // DPIN_RLED_SW
-    pinMode(DPIN_RLED_SW, LOW);
     digitalWrite(DPIN_RLED_SW, LOW);
+    pinMode(DPIN_RLED_SW, INPUT);
   } else { // DPIN_GLED
-   digitalWrite(DPIN_GLED, LOW);
+    digitalWrite(DPIN_GLED, LOW);
   }
 }
 
@@ -906,4 +912,28 @@ byte hexbright::get_definite_charge_state() {
   // BATTERY & CHARGING = CHARGING, BATTERY & CHARGED = CHARGED, CHARGED & CHARGING = CHARGING
   // In essence, only return the middle value (BATTERY) if two reads report the same thing.
   return val1 & val2;
+}
+
+void hexbright::print_charge(byte led) {
+  byte charge_state = get_charge_state();
+  if(charge_state == CHARGING && get_led_state(led) == LED_OFF) {
+    set_led(led, 350, 350);
+  } else if (charge_state == CHARGED) {
+    set_led(led,50);
+  }
+} 
+
+
+///////////////////////////////////////////////
+//////////////////SHUTDOWN/////////////////////
+///////////////////////////////////////////////
+
+void hexbright::shutdown() {
+  pinMode(DPIN_PWR, OUTPUT);
+  digitalWrite(DPIN_PWR, LOW);
+  digitalWrite(DPIN_DRV_MODE, LOW);
+  digitalWrite(DPIN_DRV_EN, LOW);
+  // make sure we don't try to turn back on
+  change_done = change_duration+1;
+  end_light_level = 0;
 }
