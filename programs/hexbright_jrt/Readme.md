@@ -3,11 +3,12 @@ hexbright_jrt by Jeff Thieleke
 
 Operation: 
 ----------
-To switch between light levels, click the power button in succession to go from
+To switch between light levels, click the power button in quickly to go from
 low to medium to high.  If you pause more than 2 seconds between clicks, the 
-HexBright will turn off with the next click.
+HexBright will turn off with the next click, remembering the last light level
+for the next time you turn on the HexBright.
 
-To activate the flashing mode, start with the HexBright turned off and hold down
+To activate the flashing mode, start with the HexBright shut off and hold down
 the power button for a moment.  The light level for flashing mode is set based on
 the last non-flashing light level (medium or high only).
 
