@@ -4,70 +4,13 @@
 *#
 *.o
 *.bin
-accelerometer_readings/90 degree swing to the right/sample01
-accelerometer_readings/90 degree swing to the right/sample02
-accelerometer_readings/90 degree swing to the right/sample03
-accelerometer_readings/90 degree swing to the right/sample04
-accelerometer_readings/90 degree swing to the right/sample05
-accelerometer_readings/90 degree swing to the right/sample06
-accelerometer_readings/90 degree swing to the right/sample07
-accelerometer_readings/90 degree swing to the right/sample08
-accelerometer_readings/90 degree swing to the right/sample09
-accelerometer_readings/90 degree swing to the right/sample10
-accelerometer_readings/Readme.md
-accelerometer_readings/fast spin (flick)/sample01
-accelerometer_readings/fast spin (flick)/sample02
-accelerometer_readings/fast spin (flick)/sample03
-accelerometer_readings/fast spin (flick)/sample04
-accelerometer_readings/fast spin (flick)/sample05
-accelerometer_readings/fast spin (flick)/sample06
-accelerometer_readings/fast spin (flick)/sample07
-accelerometer_readings/fast spin (flick)/sample08
-accelerometer_readings/fast spin (flick)/sample09
-accelerometer_readings/fast spin (flick)/sample10
-accelerometer_readings/fast spin (flick)/sample11
-accelerometer_readings/fast spin (flick)/sample12
-accelerometer_readings/fast spin (flick)/sample13
-accelerometer_readings/fast spin (flick)/sample14
-accelerometer_readings/fast spin (flick)/sample15
-accelerometer_readings/fast spin (flick)/sample16
-accelerometer_readings/fast spin (flick)/sample17
-accelerometer_readings/fast spin (flick)/sample18
-accelerometer_readings/fast spin (flick)/sample19
-accelerometer_readings/fast spin (flick)/sample20
-accelerometer_readings/medium spin/sample01
-accelerometer_readings/medium spin/sample02
-accelerometer_readings/medium spin/sample03
-accelerometer_readings/medium spin/sample04
-accelerometer_readings/medium spin/sample05
-accelerometer_readings/medium spin/sample06
-accelerometer_readings/medium spin/sample07
-accelerometer_readings/medium spin/sample08
-accelerometer_readings/medium spin/sample09
-accelerometer_readings/medium spin/sample10
-accelerometer_readings/slow spin/sample01
-accelerometer_readings/slow spin/sample02
-accelerometer_readings/slow spin/sample03
-accelerometer_readings/slow spin/sample04
-accelerometer_readings/slow spin/sample05
-accelerometer_readings/slow spin/sample06
-accelerometer_readings/slow spin/sample07
-accelerometer_readings/slow spin/sample08
-accelerometer_readings/slow spin/sample09
-accelerometer_readings/slow spin/sample10
-accelerometer_readings/tail cap flick, noise/sample01
-accelerometer_readings/tail cap flick, noise/sample02
-accelerometer_readings/tail cap flick, noise/sample03
-accelerometer_readings/tail cap flick, noise/sample04
-accelerometer_readings/tail cap flick, noise/sample05
-accelerometer_readings/tail cap flick, noise/sample06
-accelerometer_readings/tail cap flick, noise/sample07
-accelerometer_readings/tail cap flick, noise/sample08
-accelerometer_readings/tail cap flick, noise/sample09
-accelerometer_readings/tail cap flick, noise/sample10
-accelerometer_readings/test_program/makefile
-accelerometer_readings/test_program/test.cpp
-programs/functional/functional.ino
-programs/stroboscope/stroboscope.ino
-tests/accelerometer_record/accelerometer_record.ino
-tests/stroboscope_test/stroboscope_test.ino
+*.core
+*.stackdump
+accelerometer_readings/*
+hb-examples/*
+programs/functional/*
+programs/tactical/*
+programs/temperature_calibration/*
+programs/up_n_down/*
+programs/wand/*
+programs/README.md

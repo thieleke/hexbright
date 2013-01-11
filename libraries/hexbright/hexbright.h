@@ -39,8 +39,14 @@ either expressed or implied, of the FreeBSD Project.
 #define LED // comment out save 786 bytes if you don't use the rear LEDs
 #define PRINT_NUMBER // comment out to save 626 bytes if you don't need to print numbers (but need the LEDs)
 #define ACCELEROMETER //comment out to save 1500 bytes if you don't need the accelerometer
+#define FLASH_CHECKSUM // comment out to save 56 bytes when in debug mode
+#define FREE_RAM // comment out to save 146 bytes when in debug mode
+//#define STROBE // comment out to save 260 bytes (strobe is designed for high-precision
+//               //  stroboscope code, not general periodic flashing)
 
-// see also freeRam() below
+// The above #defines can help if you are running out of flash.  If you are having weird lockups,
+//  you may be running out of ram.  See freeRam's definition for additional information.
+
 
 #ifdef ACCELEROMETER
 #define DPIN_ACC_INT 3
@@ -62,7 +68,7 @@ either expressed or implied, of the FreeBSD Project.
 
 
 // debugging related definitions
-#define DEBUG 5
+#define DEBUG 0
 // Some debug modes set the light.  Your control code may reset it, causing weird flashes at startup.
 #define DEBUG_OFF 0 // no extra code is compiled in
 #define DEBUG_ON 1 // initialize printing
@@ -99,7 +105,6 @@ either expressed or implied, of the FreeBSD Project.
 
 // turn off strobe... (aka max unsigned long)
 #define STROBE_OFF -1
-
 
 // led constants
 #define RLED 0
@@ -138,6 +143,7 @@ class hexbright {
   static void shutdown();
   
   
+#ifdef FREE_RAM
   // freeRam function from: http://playground.arduino.cc/Code/AvailableMemory
   // Arduino uses ~400 bytes of ram, leaving us with 600 to play with
   //  (between function calls (including local variables) and global variables).
@@ -151,7 +157,7 @@ class hexbright {
   //   if(!hb.printing_number())
   //     hb.print_number(hb.freeRam());
   static int freeRam ();
-  
+#endif  
   
   
   // go from start_level to end_level over time (in milliseconds)
@@ -169,6 +175,7 @@ class hexbright {
   //    hb.set_light(...)
   static int light_change_remaining();
 
+#ifdef STROBE
 /////// STROBING ///////
 
   // Strobing features, limitations, and usage notes:
@@ -208,15 +215,18 @@ class hexbright {
   unsigned int get_strobe_fpm();
   // returns the current margin of error in fpm
   unsigned int get_strobe_error();
-  
-  
-  
-  // Returns the duration the button has been in updates.  Keeps its value
-  //  immediately after being released, allowing for use as follows:
-  // if(button_released() && button_held()>500)
-  static int button_held();
-  // button has been released
-  static BOOL button_released();
+#endif // STROBE
+
+  // Returns true if the button is being pressed
+  static BOOL button_pressed();
+  // button has just been pressed
+  static BOOL button_just_pressed();
+  // button has just been released
+  static BOOL button_just_released();
+  // returns the amount of time (in ms) that the button was last (or is currently being) pressed
+  static int button_pressed_time();
+  // returns the amount of time (in ms) that the button was last (or is currently being) released
+  static int button_released_time();
   
   // led = GLED or RLED,
   // on_time (0-MAXINT) = time in milliseconds before led goes to LED_WAIT state
@@ -325,7 +335,7 @@ class hexbright {
   static char get_spin();
   //returns the angle between straight down and our current vector
   // returns a value from 0 to 1. 0 == down, 1 == straight up.
-  // Multiply by 1.8 to get degrees.  Expect noise of about 10.
+  // Multiply by 1.8 to get degrees.  Expect noise of about .1.
   static double difference_from_down();
   // lots of noise < 5 degrees.  Most noise is < 10 degrees
   // noise varies partially based on sample rate, which is not currently configurable
@@ -387,7 +397,7 @@ class hexbright {
   //  well.
   static void find_down();
   
-#endif
+#endif // ACCELEROMETER
   
  private:
   static void adjust_light();
@@ -407,9 +417,10 @@ class hexbright {
 
   static void read_button();
   
+#ifdef FLASH_CHECKSUM
   // read through flash, return the checksum
   static int flash_checksum();
-
+#endif
 ///////////////////////////////////////////////
 //KLUDGE BECAUSE ARDUINO DOESN'T SUPPORT CLASS VARIABLES/INSTANTIATION
 ///////////////////////////////////////////////
