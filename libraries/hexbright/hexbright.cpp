@@ -33,6 +33,8 @@ either expressed or implied, of the FreeBSD Project.
 
 #ifndef __AVR // we're not compiling for arduino (probably testing), use these stubs
 #include "NotArduino.h"
+#else
+#include "../digitalWriteFast/digitalWriteFast.h"
 #endif
 
 // Pin assignments
@@ -43,7 +45,6 @@ either expressed or implied, of the FreeBSD Project.
 #define DPIN_DRV_EN 10
 #define APIN_TEMP 0
 #define APIN_CHARGE 3
-
 
 ///////////////////////////////////////////////
 /////////////HARDWARE INIT, UPDATE/////////////
@@ -74,15 +75,15 @@ int hexbright::flash_checksum() {
 void hexbright::init_hardware() {
   // We just powered on! That means either we got plugged
   // into USB, or the user is pressing the power button.
-  pinMode(DPIN_PWR, INPUT);
-  digitalWrite(DPIN_PWR, LOW);
+  pinModeFast(DPIN_PWR, INPUT);
+  digitalWriteFast(DPIN_PWR, LOW);
   // Initialize GPIO
-  pinMode(DPIN_RLED_SW, INPUT);
-  pinMode(DPIN_GLED, OUTPUT);
-  pinMode(DPIN_DRV_MODE, OUTPUT);
-  pinMode(DPIN_DRV_EN, OUTPUT);
-  digitalWrite(DPIN_DRV_MODE, LOW);
-  digitalWrite(DPIN_DRV_EN, LOW);
+  pinModeFast(DPIN_RLED_SW, INPUT);
+  pinModeFast(DPIN_GLED, OUTPUT);
+  pinModeFast(DPIN_DRV_MODE, OUTPUT);
+  pinModeFast(DPIN_DRV_EN, OUTPUT);
+  digitalWriteFast(DPIN_DRV_MODE, LOW);
+  digitalWriteFast(DPIN_DRV_EN, LOW);
   
 #if (DEBUG!=DEBUG_OFF)
   // Initialize serial busses
@@ -132,9 +133,9 @@ void hexbright::update() {
 
     if (next_strobe <= now) {
       if (now - next_strobe <26) {
-	digitalWrite(DPIN_DRV_EN, HIGH);
+	digitalWriteFast(DPIN_DRV_EN, HIGH);
 	delayMicroseconds(strobe_duration);
-	digitalWrite(DPIN_DRV_EN, LOW);
+	digitalWriteFast(DPIN_DRV_EN, LOW);
       }
       next_strobe += strobe_delay;
     }
@@ -214,6 +215,54 @@ int hexbright::freeRam () {
 }
 #endif
 
+///////////////////////////////////////////////
+///////////////////Filters/////////////////////
+///////////////////////////////////////////////
+
+inline int hexbright::low_pass_filter(int last_estimate, int current_reading) {
+  // The sum of these two constant multipliers (which equals the divisor), 
+  //  should not exceed 210 (to avoid integer overflow)
+  // the individual values selected do effect the resulting sketch size :/
+  return (2*last_estimate + 3*current_reading)/5;
+}
+
+inline int hexbright::stdev_filter(int last_estimate, int current_reading) {
+  float stdev = 3.3; // our standard deviation due to noise (pre calculated using accelerometer data at rest)
+  int diff = -abs(last_estimate-current_reading);
+  float deviation = diff/stdev;
+  float probability = exp(deviation)/1.25; // 2.5 ~= M_SQRT2PI, /2 because cdf is only one way
+  // exp by itself takes 400-500 bytes.  This isn't good.
+  return probability*last_estimate + (1-probability)*current_reading;
+}
+
+
+inline int hexbright::stdev_filter2(int last_estimate, int current_reading) {
+  // uses 1/deviation^2 for our cdf approximation
+  float stdev = 3.5; // our standard deviation due to noise (pre calculated using accelerometer data at rest)
+  int diff = abs(last_estimate-current_reading);
+  float deviation = diff/stdev;
+  float probability;
+  if(deviation>1) // estimate where we fall on the cdf
+    probability = 1/(deviation*deviation);
+  else
+    probability = .65;
+  // exp by itself takes 400-500 bytes.  This isn't good.
+  return probability*last_estimate + (1-probability)*current_reading;
+}
+
+inline int hexbright::stdev_filter3(int last_estimate, int current_reading) {
+  // uses 1/deviation^2 for our cdf approximation, switched to ints
+  int stdev = 3.5*10; // our standard deviation due to noise (pre calculated using accelerometer data at rest)
+  int diff = abs(last_estimate-current_reading)*10;
+  // differences < 4 have a deviation of 0
+  int deviation = diff/stdev;
+  int probability;
+  if(deviation>1) // estimate where we fall on the cdf
+    probability = 100/(deviation*deviation);
+  else
+    probability = 70;
+  return (probability*last_estimate + (100-probability)*current_reading)/100;
+}
 
 ///////////////////////////////////////////////
 ////////////////LIGHT CONTROL//////////////////
@@ -293,19 +342,19 @@ void hexbright::set_light_level(unsigned long level) {
   Serial.print("light level: ");
   Serial.println(level);
 #endif
-  pinMode(DPIN_PWR, OUTPUT);
-  digitalWrite(DPIN_PWR, HIGH);
+  pinModeFast(DPIN_PWR, OUTPUT);
+  digitalWriteFast(DPIN_PWR, HIGH);
   if(level == 0) {
     // lowest possible power, but still running (DPIN_PWR still high)
-    digitalWrite(DPIN_DRV_MODE, LOW);
+    digitalWriteFast(DPIN_DRV_MODE, LOW);
     analogWrite(DPIN_DRV_EN, 0);
   }
   else if(level<=500) {
-    digitalWrite(DPIN_DRV_MODE, LOW);
+    digitalWriteFast(DPIN_DRV_MODE, LOW);
     analogWrite(DPIN_DRV_EN, .000000633*(level*level*level)+.000632*(level*level)+.0285*level+3.98);
   } else {
     level -= 500;
-    digitalWrite(DPIN_DRV_MODE, HIGH);
+    digitalWriteFast(DPIN_DRV_MODE, HIGH);
     analogWrite(DPIN_DRV_EN, .00000052*(level*level*level)+.000365*(level*level)+.108*level+44.8);
   }
 }
@@ -427,7 +476,7 @@ unsigned char hexbright::get_led_state(unsigned char led) {
 
 inline void hexbright::_led_on(unsigned char led) {
   if(led == RLED) { // DPIN_RLED_SW
-    pinMode(DPIN_RLED_SW, OUTPUT);
+    pinModeFast(DPIN_RLED_SW, OUTPUT);
     analogWrite(DPIN_RLED_SW, led_brightness[RLED]);
   } else { // DPIN_GLED
     analogWrite(DPIN_GLED, led_brightness[GLED]);
@@ -436,10 +485,10 @@ inline void hexbright::_led_on(unsigned char led) {
 
 inline void hexbright::_led_off(unsigned char led) {
   if(led == RLED) { // DPIN_RLED_SW
-    digitalWrite(DPIN_RLED_SW, LOW);
-    pinMode(DPIN_RLED_SW, INPUT);
+    digitalWriteFast(DPIN_RLED_SW, LOW);
+    pinModeFast(DPIN_RLED_SW, INPUT);
   } else { // DPIN_GLED
-    digitalWrite(DPIN_GLED, LOW);
+    digitalWriteFast(DPIN_GLED, LOW);
   }
 }
 
@@ -516,7 +565,7 @@ int hexbright::button_released_time() {
 
 void hexbright::read_button() {
   last_button_on = button_on;
-  button_on = digitalRead(DPIN_RLED_SW);
+  button_on = digitalReadFast(DPIN_RLED_SW);
   if(button_on) {
     if(!last_button_on) {
       time_last_pressed=millis();
@@ -566,7 +615,6 @@ int current_vector = 0;
 unsigned char num_vectors = 4;
 int down_vector[] = {0,0,0};
 
-
 /// SETUP/MANAGEMENT
 
 void hexbright::enable_accelerometer() {
@@ -589,8 +637,8 @@ void hexbright::enable_accelerometer() {
   Wire.write(enable, sizeof(enable));
   Wire.endTransmission();
   
-  // pinMode(DPIN_ACC_INT,  INPUT);
-  // digitalWrite(DPIN_ACC_INT,  HIGH);
+  // pinModeFast(DPIN_ACC_INT,  INPUT);
+  // digitalWriteFast(DPIN_ACC_INT,  HIGH);
 }
 
 void hexbright::read_accelerometer() {
@@ -614,7 +662,7 @@ void hexbright::read_accelerometer() {
       } else { // read vector
         if(tmp & 0x20) // Bxx1xxxxx, it's negative
           tmp |= 0xC0; // extend to B111xxxxx
-        vectors[current_vector+i] = tmp*(100/21.3); // 1~=.05 Gs(datasheet page 28)
+	vectors[current_vector+i] = stdev_filter3(vector(1)[i], tmp*(100/21.3));
       }
     }
     break;
@@ -622,7 +670,7 @@ void hexbright::read_accelerometer() {
 }
 
 unsigned char hexbright::read_accelerometer(unsigned char acc_reg) {
-  if (!digitalRead(DPIN_ACC_INT)) {
+  if (!digitalReadFast(DPIN_ACC_INT)) {
     Wire.beginTransmission(ACC_ADDRESS);
     Wire.write(acc_reg);
     Wire.endTransmission(false);       // End, but do not stop!
@@ -646,7 +694,7 @@ inline void hexbright::find_down() {
     sum_vectors(down_vector, down_vector, vtmp);
     magnitudes+=magnitude(vtmp);
   }
-  normalize(down_vector, down_vector, magnitudes);
+  normalize(down_vector, down_vector, magnitudes!=0 ? magnitudes : 1);
 }
 
 /// tilt register interface
@@ -876,6 +924,11 @@ BOOL hexbright::printing_number() {
   return _number || print_wait_time;
 }
 
+void hexbright::reset_print_number() {
+  _number = 1;
+  print_wait_time = 0;
+}
+
 void hexbright::update_number() {
   if(_number>0) { // we have something to do...
 #ifdef DEBUG
@@ -942,6 +995,30 @@ void hexbright::print_number(long number) {
     set_led(flip_color(_color), 500);
     print_wait_time = 600/update_delay;
   }
+}
+
+
+
+//// Numeric entry
+static unsigned int read_value = 0;
+
+unsigned int hexbright::get_input_digit() {
+  return read_value;
+}
+
+void hexbright::input_digit(unsigned int min_digit, unsigned int max_digit) {
+  unsigned int tmp2 = 999 - atan2(vector(0)[0], vector(0)[2])*159 - 500; // scale from 0-999, counterclockwise = higher
+  Serial.println(tmp2);
+  tmp2 = (tmp2*(max_digit-min_digit))/1000+min_digit;
+  if(tmp2 == read_value) {
+    if(!printing_number()) {
+      print_number(tmp2);
+    }
+  } else {
+    reset_print_number();
+    set_led(GLED,100);
+  }
+  read_value = tmp2; 
 }
 #endif
 
@@ -1029,15 +1106,14 @@ void hexbright::print_charge(unsigned char led) {
 ///////////////////////////////////////////////
 
 void hexbright::shutdown() {
-  pinMode(DPIN_PWR, OUTPUT);
-  digitalWrite(DPIN_PWR, LOW);
-  digitalWrite(DPIN_DRV_MODE, LOW);
-  digitalWrite(DPIN_DRV_EN, LOW);
+  pinModeFast(DPIN_PWR, OUTPUT);
+  digitalWriteFast(DPIN_PWR, LOW);
+  digitalWriteFast(DPIN_DRV_MODE, LOW);
+  digitalWriteFast(DPIN_DRV_EN, LOW);
   // make sure we don't try to turn back on
   change_done = change_duration+1;
   end_light_level = 0;
 }
-
 
 ///////////////////////////////////////////////
 //KLUDGE BECAUSE ARDUINO DOESN'T SUPPORT CLASS VARIABLES/INSTANTIATION
@@ -1045,6 +1121,9 @@ void hexbright::shutdown() {
 
 void hexbright::fake_read_accelerometer(int* new_vector) {
   next_vector();
-  copy_vector(vectors+current_vector, new_vector);
+  for(int i=0; i<3; i++) {
+    vector(0)[i] = stdev_filter3(vector(1)[i], new_vector[i]);
+    //vector(0)[i] = new_vector[i];
+  }
 }
 

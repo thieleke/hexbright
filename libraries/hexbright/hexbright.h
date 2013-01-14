@@ -30,6 +30,7 @@ either expressed or implied, of the FreeBSD Project.
 #ifdef __AVR // we're compiling for arduino
 #include <Arduino.h>
 #include <Wire.h>
+#include <digitalWriteFast.h>
 #define BOOL boolean
 #else
 #define BOOL bool
@@ -65,7 +66,6 @@ either expressed or implied, of the FreeBSD Project.
 #define TILT_DOWN 2
 #define TILT_HORIZONTAL 3
 #endif
-
 
 // debugging related definitions
 #define DEBUG 0
@@ -288,6 +288,19 @@ class hexbright {
   static void print_number(long number);
   // currently printing a number
   static BOOL printing_number();
+  // reset printing; this immediately terminates the currently printing number.
+  static void reset_print_number();
+
+  // reads a value between min_digit to max_digit-1, see hb-examples/numeric_input
+  //  Twist the light to change the value.  When the current value changes, 
+  //   the green LED will flash, and the number that is currently being printed 
+  //   will be reset.  Suppose you are at 2 and you want to go to 5.  Rotate 
+  //   clockwise 3 green flashes, and you'll be there.
+  //  The current value is printed through the rear leds.
+  // Get the result with get_input_digit.
+  static void input_digit(unsigned int min_digit, unsigned int max_digit);
+  // grab the value that is currently selected (based on twist orientation)
+  static unsigned int get_input_digit();
   
 #ifdef ACCELEROMETER
   // accepts things like ACC_REG_TILT
@@ -396,6 +409,11 @@ class hexbright {
   //  even then, we're just guessing.  Overall, a windowed average works fairly
   //  well.
   static void find_down();
+
+  static int low_pass_filter(int last_estimate, int current_reading);
+  static int stdev_filter(int last_estimate, int current_reading);
+  static int stdev_filter2(int last_estimate, int current_reading);
+  static int stdev_filter3(int last_estimate, int current_reading);
   
 #endif // ACCELEROMETER
   
