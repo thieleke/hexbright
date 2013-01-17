@@ -8,6 +8,7 @@
 *.stackdump
 accelerometer_readings/*
 hb-examples/*
+programs/action_timer/*
 programs/functional/*
 programs/tactical/*
 programs/temperature_calibration/*
