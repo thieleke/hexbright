@@ -126,6 +126,11 @@ void hexbright::update() {
   continue_time = continue_time+(1000*update_delay);
   unsigned long now;
 
+#if (DEBUG==DEBUG_LOOP)
+  unsigned long start_time=micros();
+#endif
+
+
 #ifdef STROBE  
   while (true) {
     do {
@@ -158,25 +163,25 @@ void hexbright::update() {
   // if we're in debug mode, let us know if our loops are too large
 #if (DEBUG!=DEBUG_OFF && DEBUG!=DEBUG_PRINT)
   static int i=0;
-  static float avg_loop_time = 0;
-  static float last_time = 0;
-  avg_loop_time = (avg_loop_time*29 + continue_time-last_time)/30;
 #if (DEBUG==DEBUG_LOOP)
+  static unsigned long last_time = 0;
   if(!i) {
-    Serial.print("Average loop time: ");
-    Serial.println(avg_loop_time/1000);
+    Serial.print("Time used: ");
+    Serial.print(start_time-last_time);
+    Serial.println("/8333");
   }
+  last_time = now;
 #endif
-  if(avg_loop_time/1000>update_delay+1 && !i) {
-    // This may be caused by too much processing for our update_delay, or by too many print statements (each one takes a few ms)
-    Serial.print("WARNING: loop time: ");
-    Serial.println(avg_loop_time/1000);
+  if(((float)continue_time)-now<-5000 && !i) {
+    // This may be caused by too much processing for our update_delay, or by too many print statements)
+    //  If you're triggering this, your button and light will react more slowly, and some accelerometer
+    //  data is being missed.
+    Serial.println("WARNING: code is too slow");
   }
   if (!i)
     i=1000/update_delay; // display loop output every second
   else
     i--;
-  last_time = continue_time;
 #endif
   
   
@@ -198,11 +203,15 @@ void hexbright::update() {
 #endif
   
   read_thermal_sensor(); // takes about .2 ms to execute (fairly long, relative to the other steps)
+  read_avr_voltage();
+
 #ifdef ACCELEROMETER
   read_accelerometer();
   find_down();
 #endif
-  overheat_protection();
+  detect_overheating();
+  detect_low_battery();
+  apply_max_light_level();
   
   // change light levels as requested
   adjust_light();
@@ -281,7 +290,7 @@ int end_light_level = 0;
 int change_duration = 0;
 int change_done  = 0;
 
-int safe_light_level = MAX_LEVEL;
+int max_light_level = MAX_LEVEL;
 
 
 void hexbright::set_light(int start_level, int end_level, long time) {
@@ -318,11 +327,11 @@ int hexbright::get_light_level() {
     return (end_light_level-start_light_level)*((float)change_done/change_duration) +start_light_level;
 }
 
-int hexbright::get_safe_light_level() {
+int hexbright::get_max_light_level() {
   int light_level = get_light_level();
   
-  if(light_level>safe_light_level)
-    return safe_light_level;
+  if(light_level>max_light_level)
+    return max_light_level;
   return light_level;
 }
 
@@ -367,52 +376,21 @@ void hexbright::set_light_level(unsigned long level) {
 void hexbright::adjust_light() {
   // sets actual light level, altering value to be perceptually linear, based on steven's area brightness (cube root)
   if(change_done<=change_duration) {
-    int light_level = hexbright::get_safe_light_level();
+    int light_level = hexbright::get_max_light_level();
     set_light_level(light_level);
     
     change_done++;
   }
 }
 
-// If the starting temp is much higher than max_temp, it may be a long time before you can turn the light on.
-// this should only happen if: your ambient temperature is higher than max_temp, or you adjust max_temp while it's still hot.
-// Here's an example: ambient temperature is >
-void hexbright::overheat_protection() {
-  int temperature = get_thermal_sensor();
-  
-  safe_light_level = safe_light_level+(OVERHEAT_TEMPERATURE-temperature);
-  // min, max levels...
-  safe_light_level = safe_light_level > MAX_LEVEL ? MAX_LEVEL : safe_light_level;
-  safe_light_level = safe_light_level < MIN_OVERHEAT_LEVEL ? MIN_OVERHEAT_LEVEL : safe_light_level;
-#if (DEBUG==DEBUG_TEMP)
-  static float printed_temperature = 0;
-  static float average_temperature = -1;
-  if(average_temperature < 0) {
-    average_temperature = temperature;
-    Serial.println("Have you calibrated your thermometer?");
-    Serial.println("Instructions are in get_celsius.");
-  }
-  average_temperature = (average_temperature*4+temperature)/5;
-  if (abs(printed_temperature-average_temperature)>1) {
-    printed_temperature = average_temperature;
-    Serial.print(millis());
-    Serial.print(" ms, average reading: ");
-    Serial.print(printed_temperature);
-    Serial.print(" (celsius: ");
-    Serial.print(get_celsius());
-    Serial.print(") (fahrenheit: ");
-    Serial.print(get_fahrenheit());
-    Serial.println(")");
-  }
-#endif
-  
-  // if safe_light_level has changed, guarantee a light adjustment:
+void hexbright::apply_max_light_level() {
+  // if max_light_level has changed, guarantee a light adjustment:
   // the second test guarantees that we won't turn on if we are
   //  overheating and just shut down
-  if(safe_light_level < MAX_LEVEL && get_light_level()>MIN_OVERHEAT_LEVEL) {
+  if(max_light_level < MAX_LEVEL && get_light_level()>MIN_OVERHEAT_LEVEL) {
 #if (DEBUG!=DEBUG_OFF && DEBUG!=DEBUG_PRINT)
-    Serial.print("Estimated safe light level: ");
-    Serial.println(safe_light_level);
+    Serial.print("Max light level: ");
+    Serial.println(max_light_level);
 #endif
     change_done  = change_done < change_duration ? change_done : change_duration;
   }
@@ -516,7 +494,7 @@ inline void hexbright::adjust_leds() {
   }
 #endif
   int i=0;
-  for(int i=0; i<2; i++) {
+  for(i=0; i<2; i++) {
     if(led_on_time[i]>0) {
       _led_on(i);
       led_on_time[i]--;
@@ -991,11 +969,11 @@ void hexbright::print_number(long number) {
   }
   _color = GLED;
   _number=1; // to guarantee printing when dealing with trailing zeros (100 can't be stored as 001, use 1001)
-  while(number>0) {
+  do {
     _number = _number * 10 + (number%10);
     number = number/10;
     _color = flip_color(_color);
-  }
+  }  while(number>0);
   if(negative) {
     set_led(flip_color(_color), 500);
     print_wait_time = 600/update_delay;
@@ -1059,6 +1037,85 @@ int hexbright::get_fahrenheit() {
   // algebraic form of (get_celsius' formula)*18/10+32
   // I was lazy and pasted (x*((40.05-0)/(275-153)) - 50)*18/10+32 into wolfram alpha
   return .590902*thermal_sensor_value-58;
+}
+
+// If the ambient temperature is above your max temp, your light is going to be pretty dim...
+
+void hexbright::detect_overheating() {
+  int temperature = get_thermal_sensor();
+  
+  max_light_level = max_light_level+(OVERHEAT_TEMPERATURE-temperature);
+  // min, max levels...
+  max_light_level = max_light_level > MAX_LEVEL ? MAX_LEVEL : max_light_level;
+  max_light_level = max_light_level < MIN_OVERHEAT_LEVEL ? MIN_OVERHEAT_LEVEL : max_light_level;
+#if (DEBUG==DEBUG_TEMP)
+  static float printed_temperature = 0;
+  static float average_temperature = -1;
+  if(average_temperature < 0) {
+    average_temperature = temperature;
+    Serial.println("Have you calibrated your thermometer?");
+    Serial.println("Instructions are in get_celsius.");
+  }
+  average_temperature = (average_temperature*4+temperature)/5;
+  if (abs(printed_temperature-average_temperature)>1) {
+    printed_temperature = average_temperature;
+    Serial.print(millis());
+    Serial.print(" ms, average reading: ");
+    Serial.print(printed_temperature);
+    Serial.print(" (celsius: ");
+    Serial.print(get_celsius());
+    Serial.print(") (fahrenheit: ");
+    Serial.print(get_fahrenheit());
+    Serial.println(")");
+  }
+#endif
+}
+
+
+
+///////////////////////////////////////////////
+////////////////AVR VOLTAGE////////////////////
+///////////////////////////////////////////////
+
+int avr_voltage = 0;
+void hexbright::read_avr_voltage() {
+  // modified from here: http://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+   
+  delayMicroseconds(200); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Start analog to digital conversion
+  while (bit_is_set(ADCSRA,ADSC)); // measuring
+ 
+  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH
+  uint8_t high = ADCH; // unlocks both
+ 
+  avr_voltage = (high<<8) | low;
+}
+
+int hexbright::get_avr_voltage() {
+  // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
+  // yes, we could put this formula once at the end of read_avr_voltage.
+  //  however, the compiler pre-calculates this value in detect_low_battery
+  //  because all variables are constants.  Unless get_avr_voltage is called
+  //  by the user code, this saves space.
+  return ((long)1023*1100) / avr_voltage;
+}
+
+BOOL hexbright::low_voltage_state() {
+  static BOOL low = false;
+  static int highest_voltage = 0;
+  if(avr_voltage>highest_voltage) {
+    highest_voltage = avr_voltage;
+  } else if (avr_voltage < highest_voltage-3) {
+    low = true;
+  }
+  return low;
+}
+
+void hexbright::detect_low_battery() {
+  if (low_voltage_state() == true && max_light_level>500) {
+    max_light_level = 500;
+  }
 }
 
 
