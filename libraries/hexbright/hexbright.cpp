@@ -172,7 +172,7 @@ void hexbright::update() {
   }
   last_time = now;
 #endif
-  if(((float)continue_time)-now<-5000 && !i) {
+  if(now-continue_time>5000 && !i) {
     // This may be caused by too much processing for our update_delay, or by too many print statements)
     //  If you're triggering this, your button and light will react more slowly, and some accelerometer
     //  data is being missed.
@@ -1077,7 +1077,9 @@ void hexbright::detect_overheating() {
 ////////////////AVR VOLTAGE////////////////////
 ///////////////////////////////////////////////
 
-int avr_voltage = 0;
+int band_gap_reading = 0;
+int lowest_band_gap_reading = 1000;
+
 void hexbright::read_avr_voltage() {
   // modified from here: http://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
   ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
@@ -1086,27 +1088,23 @@ void hexbright::read_avr_voltage() {
   ADCSRA |= _BV(ADSC); // Start analog to digital conversion
   while (bit_is_set(ADCSRA,ADSC)); // measuring
  
-  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH
-  uint8_t high = ADCH; // unlocks both
- 
-  avr_voltage = (high<<8) | low;
+  // ADC register from source: http://www.sourcecodebrowser.com/avr-libc/1.8.0/iomx8_8h_source.html
+  //  it seems that this may be incompatible with assembly code; ADCW should work if that becomes an issue.
+  band_gap_reading = ADC;
+  lowest_band_gap_reading = band_gap_reading < lowest_band_gap_reading ? band_gap_reading : lowest_band_gap_reading;
 }
 
 int hexbright::get_avr_voltage() {
   // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
-  // yes, we could put this formula once at the end of read_avr_voltage.
-  //  however, the compiler pre-calculates this value in detect_low_battery
-  //  because all variables are constants.  Unless get_avr_voltage is called
-  //  by the user code, this saves space.
-  return ((long)1023*1100) / avr_voltage;
+  // this is the only place we actually convert to voltage, reducing the space used for most programs.
+  return ((long)1023*1100) / band_gap_reading;
 }
 
 BOOL hexbright::low_voltage_state() {
   static BOOL low = false;
-  static int highest_voltage = 0;
-  if(avr_voltage>highest_voltage) {
-    highest_voltage = avr_voltage;
-  } else if (avr_voltage < highest_voltage-3) {
+  // lower band gap value corresponds to a higher voltage, trigger 
+  //  low voltage state if band gap value goes too high.
+  if (band_gap_reading > lowest_band_gap_reading+4) {
     low = true;
   }
   return low;
