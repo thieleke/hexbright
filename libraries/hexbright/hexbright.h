@@ -96,7 +96,8 @@ either expressed or implied, of the FreeBSD Project.
 ///////////////////////////////////
 #define MAX_LEVEL 1000
 #define MAX_LOW_LEVEL 500
-#define CURRENT_LEVEL -1
+#define OFF_LEVEL -1
+#define CURRENT_LEVEL -2
 // We will not go below MIN_OVERHEAT_LEVEL even when overheating.  This
 //  should only matter when ambient temperature is extremely close to
 //  (or above) OVERHEAT_TEMPERATURE.
@@ -105,6 +106,7 @@ either expressed or implied, of the FreeBSD Project.
 #define NOW 1
 
 // turn off strobe... (aka max unsigned long)
+// this is only valid for STROBE, which is disabled by default (see above)
 #define STROBE_OFF -1
 
 // led constants
@@ -141,6 +143,9 @@ class hexbright {
   //  if you do not reset your variables you may get weird
   //  behavior after turning the light off and on again in
   // less than .5 seconds.
+
+  // WARNING: deprecated, do not use
+  //   use set_light(,OFF_LEVEL,);
   static void shutdown();
   
   
@@ -162,9 +167,12 @@ class hexbright {
   
   
   // go from start_level to end_level over time (in milliseconds)
-  // level is from 0-1000.
-  // 0 = no light (but still on), 500 = MAX_LOW_LEVEL, MAX_LEVEL=1000.
-  // start_level and/or end level can be CURRENT_LEVEL.
+  // level is from -2 to 1000.
+  // -2 = CURRENT_LEVEL (whatever the light is currently at), can be used as start_level or end_level
+  // -1 = OFF_LEVEL, no light, turn off (if on battery power)
+  // 0 = no light
+  // 500 = MAX_LOW_LEVEL, max low power mode
+  // 1000 = MAX_LEVEL, max high power mode
   // max change time is about 4.5 minutes ((2^15-1)*8.333 milliseconds).
   //  I have had weird issues when passing in 3*60*1000, 180000 works fine though.
   static void set_light(int start_level, int end_level, long time);
@@ -281,18 +289,11 @@ class hexbright {
   //  ...end of loop...
   static void print_charge(unsigned char led);
   // returns CHARGING, CHARGED, or BATTERY
-  // This reads the charge state twice with a small delay, then returns
-  //  the actual charge state.  BATTERY will never be returned if we are
-  //  plugged in.
-  // Use this if you take actions based on the charge state (example: you
-  //  turn on when you stop charging).  Takes up 56 bytes (34+22).
-  static unsigned char get_definite_charge_state();
-  // returns CHARGING, CHARGED, or BATTERY
   // This reads and returns the charge state, without any verification.
   //  As a result, it may report BATTERY when switching between CHARGED
   //  and CHARGING.
   // Use this if you don't care if the value is sometimes wrong (charging
-  //  notification).  Takes up 34 bytes.
+  //  notification).  Takes up 14 bytes.
   static unsigned char get_charge_state();
   
   
@@ -449,6 +450,7 @@ class hexbright {
   static void adjust_leds();
   
   static void read_thermal_sensor();
+  static void read_charge_state();
   static void read_avr_voltage();
 
   static void read_button();

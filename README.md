@@ -55,7 +55,8 @@ Video Instructions
 Text Instructions
 -----------------
 
-1.  Download and install [arduino](http://arduino.cc/en/Main/Software) and the CP210x driver (Use a VCP Driver Kit from [here](http://www.silabs.com/products/mcu/Pages/USBtoUARTBridgeVCPDrivers.aspx)).  Most linux kernels come with the driver pre-built.
+1.  Download and install [arduino](http://arduino.cc/en/Main/Software) and the CP210x driver (Use a VCP Driver Kit from [here](http://www.silabs.com/products/mcu/Pages/USBtoUARTBridgeVCPDrivers.aspx)).
+    *   For linux: Most kernels come with the driver pre-built (it's been in the kernel since 2005 or so).  **However**, many repositories do not yet have arduino 1.0.1 or higher, which is (currently) required.  The tarballs available at arduino.cc are very easy to work with; I've been able to just extract the files and run arduino.  You will probably have to fiddle with user groups, which vary by distro.
 
 2.  Download this folder/repository using one of the following methods, accessible at the top of the [project page](https://github.com/dhiltonp/hexbright).
     1. Read-Only (no integrated sharing mechanism)
@@ -80,6 +81,11 @@ Text Instructions
 8.  Now plug in your hexbright and go to 'Tools'->'Serial Port'.  Select the new option.  (On linux, there may be a delay of over a minute before the device appears.)
 
 9.  Underneath the 'Sketch' and 'Tools' menu options, there is an up arrow (to open a program).  Click on it, go to 'programs', and select a program.
+    *  I recommend tactical as your first program, as it is very straightforward.
+    *  All firmwares in the programs directory have a readme describing their operation.  Arduino doesn't have an integrated method of viewing associated files, so you will need to open README.md in the corresponding folder for notes on operation.
+
+10. Under 'Edit', there is a right arrow.  Click it to upload the program.
+
 
 Overview
 -----------------

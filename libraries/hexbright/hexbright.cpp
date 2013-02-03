@@ -34,6 +34,7 @@ either expressed or implied, of the FreeBSD Project.
 #ifndef __AVR // we're not compiling for arduino (probably testing), use these stubs
 #include "NotArduino.h"
 #else
+#include "pin_interface.h"
 #include "../digitalWriteFast/digitalWriteFast.h"
 #endif
 
@@ -45,7 +46,7 @@ either expressed or implied, of the FreeBSD Project.
 #define DPIN_DRV_EN 10
 #define APIN_TEMP 0
 #define APIN_CHARGE 3
-
+#define APIN_BAND_GAP 14
 ///////////////////////////////////////////////
 /////////////HARDWARE INIT, UPDATE/////////////
 ///////////////////////////////////////////////
@@ -122,8 +123,6 @@ void hexbright::init_hardware() {
 }
 
 void hexbright::update() {
-  // advance time at the same rate as values are changed in the accelerometer.
-  continue_time = continue_time+(1000*update_delay);
   unsigned long now;
 
 #if (DEBUG==DEBUG_LOOP)
@@ -203,6 +202,7 @@ void hexbright::update() {
 #endif
   
   read_thermal_sensor(); // takes about .2 ms to execute (fairly long, relative to the other steps)
+  read_charge_state();
   read_avr_voltage();
 
 #ifdef ACCELEROMETER
@@ -215,6 +215,12 @@ void hexbright::update() {
   
   // change light levels as requested
   adjust_light();
+
+
+  // advance time at the same rate as values are changed in the accelerometer.
+  //  advance continue_time here, so the first run through short-circuits, 
+  //  meaning we will read hardware immediately after power on.
+  continue_time = continue_time+(1000*update_delay);
 }
 
 #ifdef FREE_RAM
@@ -359,11 +365,16 @@ void hexbright::set_light_level(unsigned long level) {
   pinModeFast(DPIN_PWR, OUTPUT);
   digitalWriteFast(DPIN_PWR, HIGH);
   if(level == 0) {
-    // lowest possible power, but still running (DPIN_PWR still high)
+    // lowest possible power, but cpu still running (DPIN_PWR still high)
     digitalWriteFast(DPIN_DRV_MODE, LOW);
     analogWrite(DPIN_DRV_EN, 0);
-  }
-  else if(level<=500) {
+  } else if(level == OFF_LEVEL) {
+    // power off (DPIN_PWR LOW)
+    pinModeFast(DPIN_PWR, OUTPUT);
+    digitalWriteFast(DPIN_PWR, LOW);
+    digitalWriteFast(DPIN_DRV_MODE, LOW);
+    analogWrite(DPIN_DRV_EN, 0);
+  } else if(level<=500) {
     digitalWriteFast(DPIN_DRV_MODE, LOW);
     analogWrite(DPIN_DRV_EN, .000000633*(level*level*level)+.000632*(level*level)+.0285*level+3.98);
   } else {
@@ -914,14 +925,12 @@ void hexbright::reset_print_number() {
 
 void hexbright::update_number() {
   if(_number>0) { // we have something to do...
-#ifdef DEBUG
-    if(DEBUG==DEBUG_NUMBER) {
-      static int last_printed = 0;
-      if(last_printed != _number) {
-        last_printed = _number;
-        Serial.print("number remaining (read from right to left): ");
-        Serial.println(_number);
-      }
+#if (DEBUG==DEBUG_NUMBER)
+    static int last_printed = 0;
+    if(last_printed != _number) {
+      last_printed = _number;
+      Serial.print("number remaining (read from right to left): ");
+      Serial.println(_number);
     }
 #endif
     if(!print_wait_time) {
@@ -1014,7 +1023,7 @@ void hexbright::read_thermal_sensor() {
   // read temperature setting
   // device data sheet: http://ww1.microchip.com/downloads/en/devicedoc/21942a.pdf
   
-  thermal_sensor_value = analogRead(APIN_TEMP);
+  thermal_sensor_value = read_adc(APIN_TEMP);
 }
 
 int hexbright::get_thermal_sensor() {
@@ -1042,7 +1051,7 @@ int hexbright::get_fahrenheit() {
 // If the ambient temperature is above your max temp, your light is going to be pretty dim...
 
 void hexbright::detect_overheating() {
-  int temperature = get_thermal_sensor();
+  unsigned int temperature = get_thermal_sensor();
   
   max_light_level = max_light_level+(OVERHEAT_TEMPERATURE-temperature);
   // min, max levels...
@@ -1081,16 +1090,7 @@ int band_gap_reading = 0;
 int lowest_band_gap_reading = 1000;
 
 void hexbright::read_avr_voltage() {
-  // modified from here: http://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
-  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-   
-  delayMicroseconds(200); // Wait for Vref to settle
-  ADCSRA |= _BV(ADSC); // Start analog to digital conversion
-  while (bit_is_set(ADCSRA,ADSC)); // measuring
- 
-  // ADC register from source: http://www.sourcecodebrowser.com/avr-libc/1.8.0/iomx8_8h_source.html
-  //  it seems that this may be incompatible with assembly code; ADCW should work if that becomes an issue.
-  band_gap_reading = ADC;
+  band_gap_reading = read_adc(APIN_BAND_GAP);
   lowest_band_gap_reading = band_gap_reading < lowest_band_gap_reading ? band_gap_reading : lowest_band_gap_reading;
 }
 
@@ -1104,7 +1104,9 @@ BOOL hexbright::low_voltage_state() {
   static BOOL low = false;
   // lower band gap value corresponds to a higher voltage, trigger 
   //  low voltage state if band gap value goes too high.
-  if (band_gap_reading > lowest_band_gap_reading+4) {
+  // I need have a value of 5 for this to work (with a 150 ms delay in read_adc).
+  //  I'm increasing that for some room for error.
+  if (band_gap_reading > lowest_band_gap_reading+8) {
     low = true;
   }
   return low;
@@ -1121,33 +1123,35 @@ void hexbright::detect_low_battery() {
 //////////////////CHARGING/////////////////////
 ///////////////////////////////////////////////
 
-unsigned char hexbright::get_charge_state() {
-  int charge_value = analogRead(APIN_CHARGE);
+// we store the last two charge readings in charge_state, and due to the specific
+//  values chosen for the #defines, we greatly decrease the possibility of returning
+//  BATTERY when we are still connected over USB.  This costs 14 bytes.
+
+// BATTERY is the median value, which is only returned if /both/ halves are BATTERY.
+//  If one of the two values is CHARGING, we return CHARGING
+//  If one of the two values is CHARGED (and neither CHARGING), we return CHARGED
+//  Otherwise, BATTERY is both values and is returned
+unsigned char charge_state = BATTERY;
+
+void hexbright::read_charge_state() {
+  unsigned int charge_value = read_adc(APIN_CHARGE);
 #if (DEBUG==DEBUG_CHARGE)
   Serial.print("Current charge reading: ");
   Serial.println(charge_value);
 #endif
   // <128 charging, >768 charged, battery
+  charge_state <<= 4;
   if(charge_value<128)
-    return CHARGING;
+    charge_state += CHARGING;
   else if (charge_value>768)
-    return CHARGED;
-  return BATTERY;
+    charge_state += CHARGED;
+  else
+    charge_state += BATTERY;
 }
 
-// reading twice costs us 28 bytes, but improves reliability.
-// The root problem is when the charge value goes from <128 to >768 (or the
-//  reverse, from topping off), it passes through the middle range.  If we
-//  read at the wrong time, we can get a BATTERY value while we are still
-//  plugged in.
-// Reading twice with a sufficient delay, we can guarantee that our state is correct.
-unsigned char hexbright::get_definite_charge_state() {
-  unsigned char val1 = get_charge_state();
-  delayMicroseconds(50); // wait a little in case the value was changing
-  unsigned char val2 = get_charge_state();
-  // BATTERY & CHARGING = CHARGING, BATTERY & CHARGED = CHARGED, CHARGED & CHARGING = CHARGING
-  // In essence, only return the middle value (BATTERY) if two reads report the same thing.
-  return val1 & val2;
+unsigned char hexbright::get_charge_state() {
+  // see more details on how this works at the top of this section
+  return charge_state & (charge_state>>4);
 }
 
 void hexbright::print_charge(unsigned char led) {
@@ -1157,7 +1161,7 @@ void hexbright::print_charge(unsigned char led) {
   } else if (charge_state == CHARGED) {
     set_led(led,50);
   }
-} 
+}
 
 
 ///////////////////////////////////////////////
@@ -1165,13 +1169,10 @@ void hexbright::print_charge(unsigned char led) {
 ///////////////////////////////////////////////
 
 void hexbright::shutdown() {
-  pinModeFast(DPIN_PWR, OUTPUT);
-  digitalWriteFast(DPIN_PWR, LOW);
-  digitalWriteFast(DPIN_DRV_MODE, LOW);
-  analogWrite(DPIN_DRV_EN, 0);
-  // make sure we don't try to turn back on
-  change_done = change_duration+1;
-  end_light_level = 0;
+#if (DEBUG!=DEBUG_OFF)
+  Serial.println("don't use shutdown, use set_light(,OFF_LEVEL,)");
+#endif
+  set_light(MAX_LOW_LEVEL, OFF_LEVEL, NOW);
 }
 
 ///////////////////////////////////////////////
