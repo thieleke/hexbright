@@ -47,6 +47,8 @@ either expressed or implied, of the FreeBSD Project.
 #define APIN_TEMP 0
 #define APIN_CHARGE 3
 #define APIN_BAND_GAP 14
+
+
 ///////////////////////////////////////////////
 /////////////HARDWARE INIT, UPDATE/////////////
 ///////////////////////////////////////////////
@@ -216,7 +218,6 @@ void hexbright::update() {
   // change light levels as requested
   adjust_light();
 
-
   // advance time at the same rate as values are changed in the accelerometer.
   //  advance continue_time here, so the first run through short-circuits, 
   //  meaning we will read hardware immediately after power on.
@@ -231,6 +232,7 @@ int hexbright::freeRam () {
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
 #endif
+
 
 ///////////////////////////////////////////////
 ///////////////////Filters/////////////////////
@@ -280,6 +282,7 @@ inline int hexbright::stdev_filter3(int last_estimate, int current_reading) {
     probability = 70;
   return (probability*last_estimate + (100-probability)*current_reading)/100;
 }
+
 
 ///////////////////////////////////////////////
 ////////////////LIGHT CONTROL//////////////////
@@ -349,7 +352,6 @@ int hexbright::light_change_remaining() {
     return 0;
   return tmp*update_delay;
 }
-
 
 void hexbright::set_light_level(unsigned long level) {
   // LOW 255 approximately equals HIGH 48/49.  There is a color change.
@@ -520,29 +522,42 @@ inline void hexbright::adjust_leds() {
 
 #endif
 
+
 ///////////////////////////////////////////////
 /////////////////////BUTTON////////////////////
 ///////////////////////////////////////////////
 
-BOOL button_on = false;
-BOOL last_button_on = false;
+#define BUTTON_FILTER 7 // 00000111 (this is applied at read time)
+#define BUTTON_JUST_OFF(state) (state==4)  // 100 = just off
+#define BUTTON_JUST_ON(state) (state==1)   // 001 = just on
+#define BUTTON_STILL_OFF(state) (state==0) // 000 = still off
+// 010, 011, 101, 110, 111 = still on
+#define BUTTON_STILL_ON(state) !(BUTTON_JUST_OFF(state) | BUTTON_JUST_ON(state) | BUTTON_STILL_OFF(state))
+#define BUTTON_ON(state) (state & 3) // either of right most bits is on: 00000011 (not 100 or 000)
+#define BUTTON_OFF(state) !BUTTON_ON(state)
+
+// button state could hold a history of the last 8 switch values, 1 == on, 0 == off.
+// for debouncing, we only need the most recent 3, so BUTTON_FILTER=7, 00000111
+// This is applied during the read process.
+unsigned char button_state = 0;
+
 unsigned long time_last_pressed = 0; // the time that button was last pressed
 unsigned long time_last_released = 0; // the time that the button was last released
 
 BOOL hexbright::button_pressed() {
-  return (BOOL)button_on;
+  return BUTTON_ON(button_state);
 }
 
 BOOL hexbright::button_just_pressed() {
-  return button_on and !last_button_on;
+  return BUTTON_JUST_ON(button_state);
 }
 
 BOOL hexbright::button_just_released() {
-  return !button_on and last_button_on;
+  return BUTTON_JUST_OFF(button_state);
 }
 
 int hexbright::button_pressed_time() {
-  if(button_on) {
+  if(BUTTON_ON(button_state)) {
     return millis()-time_last_pressed;
   } else {
     return time_last_released - time_last_pressed;
@@ -550,7 +565,7 @@ int hexbright::button_pressed_time() {
 }
 
 int hexbright::button_released_time() {
-  if(button_on) {
+  if(BUTTON_ON(button_state)) {
     return time_last_pressed-time_last_released;
   } else {
     return millis()-time_last_released;
@@ -558,26 +573,26 @@ int hexbright::button_released_time() {
 }
 
 void hexbright::read_button() {
-  last_button_on = button_on;
-  button_on = digitalReadFast(DPIN_RLED_SW);
-  if(button_on) {
-    if(!last_button_on) {
-      time_last_pressed=millis();
+  /*button_state = button_state << 1;                            // make space for the new value
+    button_state = button_state | digitalReadFast(DPIN_RLED_SW); // add the new value
+    button_state = button_state & BUTTON_FILTER;                 // remove excess values */
+  // Doing the three commands above on one line saves 2 bytes.  We'll take it!
+  button_state = ((button_state<<1) | digitalReadFast(DPIN_RLED_SW)) & BUTTON_FILTER;
+  
+  if(BUTTON_JUST_ON(button_state)) {
+    time_last_pressed=millis();
 #if (DEBUG==DEBUG_BUTTON)
-      Serial.println("Button just pressed");
-      Serial.print("Time spent released (ms): ");
-      Serial.println(time_last_pressed-time_last_released);
+    Serial.println("Button just pressed");
+    Serial.print("Time spent released (ms): ");
+    Serial.println(time_last_pressed-time_last_released);
 #endif
-    }
-  } else { // button is off
-    if(last_button_on) {
-      time_last_released=millis();
+  } else if(BUTTON_JUST_OFF(button_state)) {
+    time_last_released=millis();
 #if (DEBUG==DEBUG_BUTTON)
-      Serial.println("Button just released");
-      Serial.print("Time spent pressed (ms): ");
-      Serial.println(time_last_released-time_last_pressed);
+    Serial.println("Button just released");
+    Serial.print("Time spent pressed (ms): ");
+    Serial.println(time_last_released-time_last_pressed);
 #endif
-    }
   }
 }
 
@@ -900,10 +915,8 @@ void hexbright::print_vector(int* vector, const char* label) {
 #endif
 }
 
-
-
-
 #endif
+
 
 ///////////////////////////////////////////////
 //////////////////UTILITIES////////////////////
@@ -1013,6 +1026,7 @@ void hexbright::input_digit(unsigned int min_digit, unsigned int max_digit) {
 }
 #endif
 
+
 ///////////////////////////////////////////////
 ////////////////TEMPERATURE////////////////////
 ///////////////////////////////////////////////
@@ -1081,7 +1095,6 @@ void hexbright::detect_overheating() {
 }
 
 
-
 ///////////////////////////////////////////////
 ////////////////AVR VOLTAGE////////////////////
 ///////////////////////////////////////////////
@@ -1105,8 +1118,11 @@ BOOL hexbright::low_voltage_state() {
   // lower band gap value corresponds to a higher voltage, trigger 
   //  low voltage state if band gap value goes too high.
   // I need have a value of 5 for this to work (with a 150 ms delay in read_adc).
-  //  I'm increasing that for some room for error.
-  if (band_gap_reading > lowest_band_gap_reading+8) {
+  //  I'm increasing that for some room for error (8).
+  // NEW CHANGE:
+  // 40 is enough to account for the drop from usb to regular power.
+  //  This approach is imperfect: if you hit a low battery mark, then run it down for 15 minutes and turn it off, you will be unable to turn it back on again until it is recharged
+  if (band_gap_reading > lowest_band_gap_reading+40) {
     low = true;
   }
   return low;
@@ -1174,6 +1190,7 @@ void hexbright::shutdown() {
 #endif
   set_light(MAX_LOW_LEVEL, OFF_LEVEL, NOW);
 }
+
 
 ///////////////////////////////////////////////
 //KLUDGE BECAUSE ARDUINO DOESN'T SUPPORT CLASS VARIABLES/INSTANTIATION

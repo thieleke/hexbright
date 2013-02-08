@@ -45,6 +45,7 @@ either expressed or implied, of the FreeBSD Project.
 //#define STROBE // comment out to save 260 bytes (strobe is designed for high-precision
 //               //  stroboscope code, not general periodic flashing)
 
+
 // The above #defines can help if you are running out of flash.  If you are having weird lockups,
 //  you may be running out of ram.  See freeRam's definition for additional information.
 
@@ -289,11 +290,6 @@ class hexbright {
   //  ...end of loop...
   static void print_charge(unsigned char led);
   // returns CHARGING, CHARGED, or BATTERY
-  // This reads and returns the charge state, without any verification.
-  //  As a result, it may report BATTERY when switching between CHARGED
-  //  and CHARGING.
-  // Use this if you don't care if the value is sometimes wrong (charging
-  //  notification).  Takes up 14 bytes.
   static unsigned char get_charge_state();
   
   
