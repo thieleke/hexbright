@@ -6,6 +6,18 @@
 *.bin
 *.core
 *.stackdump
+<<<<<<< HEAD
+accelerometer_readings/*
+hb-examples/*
+programs/action_timer/*
+programs/functional/*
+programs/tactical/*
+programs/temperature_calibration/*
+programs/up_n_down/*
+programs/wand/*
+programs/README.md
+tests/*
+=======
 
 # Other hexbright project forked from github #
 ##############################################
@@ -25,3 +37,4 @@ hexbright-emc2cube
 Icon?
 ehthumbs.db
 Thumbs.db
+>>>>>>> d8e154d5c3037e3424e721c133635c58612c35a7
